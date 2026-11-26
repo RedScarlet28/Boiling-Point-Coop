@@ -1,0 +1,7 @@
+CoopTest/bin/
+CoopTest/obj/
+CoopTest/run/
+CoopTest/*.log
+coop_profile.ini
+coop_autoexec.txt
+*.zip

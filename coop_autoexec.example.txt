@@ -1,0 +1,6 @@
+# Rename to coop_autoexec.txt to run these admin commands once the world is ready.
+# One command per line; "wait MS" pauses. Same commands as the admin console (type help there).
+# Example: go to the other player 2 seconds after loading, then print the reputation table.
+wait 2000
+goto
+rank
