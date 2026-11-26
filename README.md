@@ -107,3 +107,5 @@ Notes on addresses and structures are in comments throughout `CoopTest/src/bp_co
 
 Early alpha, made for fun and preservation. Not affiliated with Deep Shadows or the publishers.
 You need your own copy of the game; no game files are included.
+
+The mod's code is released under the [MIT License](LICENSE).
