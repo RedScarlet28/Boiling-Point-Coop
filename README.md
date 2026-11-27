@@ -39,14 +39,30 @@ The mod is a single proxy `dinput.dll` (written in C) placed in the game folder,
    **`bp_coop.ini`** and the **`CoopTest`** folder into the game folder (next to `Xenus.exe`).
 3. Recommended in the game's `GAME.INI` when running two copies on one PC:
    `Windowed mode=1`, `ModeWidth=1280`, `ModeHeight=720`, `WRITECONSOLELOG=1`.
-4. Playing over a network: on the host PC run `CoopTest\tools\firewall.ps1` once as administrator
-   (opens UDP 15011 and 15013 and prints the address to give to the other player).
+4. Playing over a network: press **Open firewall** in the launcher once on each PC (or run
+   `CoopTest\tools\firewall.ps1` as administrator). It opens UDP 15011-15013.
 
 To uninstall, delete `dinput.dll` from the game folder.
 
-## Playing
+## Playing on two PCs — the launcher
 
-On one PC (testing):
+Double-click **`Coop Launcher.cmd`** in the game folder (both PCs need the mod installed, same version).
+
+1. **Host:** choose *Host a game*, type a name, press **START**. The launcher shows this PC's
+   addresses — give one to your friend. In the game, Load Game (or New Game) and wait until you can walk.
+2. **Guest:** choose *Join a friend*, type a name and the host's address (**Ping** checks it can be
+   reached), then press **START** and click New Game. You join the host's world by yourself.
+
+Which address to use:
+
+* **Same house / LAN:** the host's `192.168.x.x` or `10.x.x.x` address.
+* **Over the internet:** easiest is a VPN both players join (Tailscale, ZeroTier, Radmin VPN) — use the
+  host's VPN address. Otherwise the host forwards **UDP 15011 and 15013** on the router to the host PC
+  and gives the guest its public IP.
+
+**Last session summary** shows what the logs recorded — useful for bug reports.
+
+## Playing on one PC (testing)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File CoopTest\start_both.ps1
@@ -55,7 +71,7 @@ powershell -ExecutionPolicy Bypass -File CoopTest\start_both.ps1
 1. **Host window:** Load Game (or New Game) and wait until you can walk around.
 2. **Guest window:** New Game (or Load Game) — it joins the host by itself.
 
-On two PCs: the host runs `CoopTest\start_host.ps1`, the guest runs
+Without the launcher: the host runs `CoopTest\start_host.ps1`, the guest runs
 `CoopTest\start_client.ps1 -hostIp <host address>`.
 
 Always restart all copies together. After a session, `CoopTest\tools\results.ps1` summarizes the logs
