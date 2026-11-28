@@ -1775,7 +1775,20 @@ static int __cdecl my_lsmsave(char *name)
         if (g_prof_on) {
             char slot[MAX_PATH];
             profile_save("guest pressed save");
-            if (name && *name) { game_path(name, slot); DeleteFileA(slot); profile_save_to(slot, "save slot"); }
+            if (name && *name) {
+                /* 0.15.7: create the file through vital (gfCreate) so the game's own file index knows it:
+                 * Load / Delete open it with gfOpen, which only finds indexed files (gfFetch). */
+                HMODULE vd = GetModuleHandleA("vital.dll");
+                void *(__cdecl *gfc)(char *) = (void *(__cdecl *)(char *))GetProcAddress(vd, "gfCreate");
+                void (__cdecl *gfx)(void *) = (void (__cdecl *)(void *))GetProcAddress(vd, "gfClose");
+                void *fh;
+                if (!gfc) gfc = (void *(__cdecl *)(char *))GetProcAddress(vd, "?gfCreate@@YAPAUGFILE@@PAD@Z");
+                if (!gfx) gfx = (void (__cdecl *)(void *))GetProcAddress(vd, "?gfClose@@YAXPAUGFILE@@@Z");
+                game_path(name, slot);
+                fh = gfc ? gfc(name) : NULL;
+                if (fh && gfx) gfx(fh); else DeleteFileA(slot);
+                profile_save_to(slot, fh ? "save slot (indexed)" : "save slot (NOT indexed)");
+            }
         }
         logf("save: guest save '%s' -> character profile only (the world belongs to the host)", name ? name : "?");
         return 0;
@@ -2764,7 +2777,7 @@ BOOL WINAPI DllMain(HINSTANCE h, DWORD why, LPVOID r)
         sprintf(lp, "%sCoopTest", g_dir); CreateDirectoryA(lp, NULL);
         sprintf(lp, "%sCoopTest\\bp_coop_%lu.log", g_dir, GetCurrentProcessId());
         g_log = fopen(lp, "w");
-        logf("bp_coop 0.15.6 loaded, pid %lu. mode=%s host_ip=%s name=%s max_players=%d two_instances=%d",
+        logf("bp_coop 0.15.7 loaded, pid %lu. mode=%s host_ip=%s name=%s max_players=%d two_instances=%d",
              GetCurrentProcessId(), g_mode, g_ip, g_name, g_maxplayers, g_two);
         install_hooks();
         g_main_tid = GetCurrentThreadId();
