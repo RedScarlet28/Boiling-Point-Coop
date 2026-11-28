@@ -752,6 +752,14 @@ static void hook_client_send(void)
  * lsmLoadFile ... Ordinal_11/Ordinal_611(4)). With lsmLoadFile skipped on the client that left it on the
  * LOADING screen forever. New Game (NewGameChecked, +0x4E7E0) got in-game on the client before, so on the
  * client Load Game jumps straight to New Game. Both are cdecl, the caller pops the 2 args. ---- */
+static BYTE *g_newgame_checked; static char g_guest_slot_pending[MAX_PATH];
+static void __cdecl guest_loadgame(const char *a, const char *b)
+{
+    const char *f = (a && strstr(a, "map")) ? b : a;     /* one argument is the slot's map picture file */
+    if (f && !IsBadStringPtrA(f, MAX_PATH)) { strncpy(g_guest_slot_pending, f, MAX_PATH - 1); }
+    logf("client: Load Game of '%s' -> joining the host (character from that slot)", g_guest_slot_pending);
+    ((void (__cdecl *)(void))g_newgame_checked)();
+}
 static void hook_loadgame_to_newgame(void)
 {
     BYTE *x = (BYTE *)GetModuleHandleA(NULL), *lg, *ng; DWORD old;
@@ -760,8 +768,9 @@ static void hook_loadgame_to_newgame(void)
     if (!lg) lg = x + 0x4EB00;
     if (!ng) ng = x + 0x4E7E0;
     if (lg != x + 0x4EB00 || ng != x + 0x4E7E0) logf("note: LoadGameChecked %p NewGameChecked %p (base %p)", lg, ng, x);
+    g_newgame_checked = ng;
     VirtualProtect(lg, 5, PAGE_EXECUTE_READWRITE, &old);
-    lg[0] = 0xE9; *(int *)(lg + 1) = (int)(ng - (lg + 5));
+    lg[0] = 0xE9; *(int *)(lg + 1) = (int)((BYTE *)guest_loadgame - (lg + 5));
     VirtualProtect(lg, 5, old, &old);
     FlushInstructionCache(GetCurrentProcess(), lg, 5);
     logf("client: Load Game now runs New Game (the world comes from the host)");
@@ -1698,11 +1707,25 @@ static void profile_path(char *out)
     char *s; strcpy(out, g_ini); s = strrchr(out, '\\'); strcpy(s ? s + 1 : out, "coop_profile.ini");
 }
 
+/* 0.15.6: a guest save also writes the character into the save slot's own file (Save\saveNN.bin): Xenus's
+ * Load Game first checks that this file exists (LoadGame -> gfOpen) and silently did nothing before. Loading
+ * such a slot joins the host (Load Game = New Game on the guest) and restores the character from that slot. */
+static char g_guest_slot[MAX_PATH];
+static void game_path(const char *rel, char *out)
+{
+    char *s; if (strchr(rel, ':') || (rel[0] == 0x5C && rel[1] == 0x5C)) { strcpy(out, rel); return; }
+    strcpy(out, g_ini); s = strrchr(out, 0x5C); strcpy(s ? s + 1 : out, rel);
+}
+static void profile_save_to(const char *path, const char *why);
 static void profile_save(const char *why)
+{
+    char path[MAX_PATH]; profile_path(path); profile_save_to(path, why);
+}
+static void profile_save_to(const char *path_in, const char *why)
 {
     char path[MAX_PATH], k[32], v[64], items[4096]; BYTE *e = local_player(); int p = V.clfocus(10), i, n = 0;
     if (!e) { aprint("profile: no local player, not saved"); return; }
-    profile_path(path);
+    strcpy(path, path_in);
     sprintf(v, "%d", *(int *)(e + 0x1014C)); WritePrivateProfileStringA("profile", "money", v, path);
     for (i = 0; i < 14; i++) {
         sprintf(k, "exp%d", i); sprintf(v, "%.3f", ((float *)(e + 0x1A208))[i]);
@@ -1723,6 +1746,10 @@ static void profile_load(void)
     char path[MAX_PATH], k[32], v[64], items[4096], *t; BYTE *e = local_player(); int p = V.clfocus(10), i, added = 0;
     if (!e) { aprint("profile: no local player"); return; }
     profile_path(path);
+    if (g_guest_slot_pending[0] && !g_guest_slot[0]) game_path(g_guest_slot_pending, g_guest_slot);
+    if (g_guest_slot[0] && GetPrivateProfileStringA("profile", "money", "", v, sizeof v, g_guest_slot)) {
+        strcpy(path, g_guest_slot); aprint("profile: restoring the character saved in %s", path);
+    }
     if (GetPrivateProfileStringA("profile", "money", "", v, sizeof v, path) == 0) { aprint("profile: none saved yet (%s)", path); return; }
     *(int *)(e + 0x1014C) = atoi(v);
     for (i = 0; i < 14; i++) {
@@ -1745,7 +1772,11 @@ static int __cdecl my_lsmsave(char *name)
 {
     static short hid[64]; static void *hsv[64], *hcl[64]; int n = 0, p, i, r, mode = *V.mode;
     if (mode == 4) {
-        if (g_prof_on) profile_save("guest pressed save");
+        if (g_prof_on) {
+            char slot[MAX_PATH];
+            profile_save("guest pressed save");
+            if (name && *name) { game_path(name, slot); DeleteFileA(slot); profile_save_to(slot, "save slot"); }
+        }
         logf("save: guest save '%s' -> character profile only (the world belongs to the host)", name ? name : "?");
         return 0;
     }
@@ -2733,7 +2764,7 @@ BOOL WINAPI DllMain(HINSTANCE h, DWORD why, LPVOID r)
         sprintf(lp, "%sCoopTest", g_dir); CreateDirectoryA(lp, NULL);
         sprintf(lp, "%sCoopTest\\bp_coop_%lu.log", g_dir, GetCurrentProcessId());
         g_log = fopen(lp, "w");
-        logf("bp_coop 0.15.5 loaded, pid %lu. mode=%s host_ip=%s name=%s max_players=%d two_instances=%d",
+        logf("bp_coop 0.15.6 loaded, pid %lu. mode=%s host_ip=%s name=%s max_players=%d two_instances=%d",
              GetCurrentProcessId(), g_mode, g_ip, g_name, g_maxplayers, g_two);
         install_hooks();
         g_main_tid = GetCurrentThreadId();
