@@ -622,6 +622,38 @@ static void host_world_ready(void)
     client_world_ready();
 }
 
+/* 0.15.3 host: after the New Game intro the host was thrown back to the main menu (the New Game page) and
+ * could not leave it. game.dll scenaryNextMovie / scenarySkipMovie send pipeline 0x808F ("campaign over,
+ * back to menu": Xenus sets the menu flags and clears stOpen_called, so Esc cannot resume) when the
+ * scenario step (game +0x7F585C) is 0xF. In server mode it is 0xF after the intro. The host never wants
+ * that message in co-op: game.dll's msgSendOutside import is wrapped and 0x808F is dropped (and the pause
+ * that comes with it undone). */
+typedef void (__cdecl *fn_pause)(BYTE, int);
+static fn_msgout o_gmsgout; static fn_pause g_stpause;
+static int __cdecl my_game_msgout(int a, int msg, void *p1, void *p2)
+{
+    if (msg == 0x808F && *V.mode == 3) {
+        BYTE *g = (BYTE *)GetModuleHandleA("game.dll");
+        logf("host: dropped 'back to main menu' (0x808F) from the intro script, scenario step %d/%d",
+             *(int *)(g + 0x7F585C), *(int *)(g + 0x7F5860));
+        if (g_stpause) g_stpause(0, 0);
+        return 0;
+    }
+    return o_gmsgout(a, msg, p1, p2);
+}
+static void hook_game_msgout(BYTE *g)
+{
+    BYTE *c = g + 0xC44DA; void **slot; DWORD old;
+    if (c[0] != 0xFF || c[1] != 0x15) { logf("host: msgSendOutside call bytes differ, menu fix off"); return; }
+    slot = *(void ***)(c + 2);
+    if (IsBadReadPtr(slot, 4) || *slot == (void *)my_game_msgout) return;
+    g_stpause = (fn_pause)GetProcAddress(GetModuleHandleA("vital.dll"), "?stSetPause@@YAXEH@Z");
+    if (!g_stpause) g_stpause = (fn_pause)GetProcAddress(GetModuleHandleA("vital.dll"), "stSetPause");
+    o_gmsgout = (fn_msgout)*slot;
+    VirtualProtect(slot, 4, PAGE_READWRITE, &old); *slot = (void *)my_game_msgout; VirtualProtect(slot, 4, old, &old);
+    logf("host: intro 'back to menu' filter on (stSetPause %p)", (void *)g_stpause);
+}
+
 static void hook_streaming(HMODULE game);
 
 /* ---- host bandwidth: svNetworkSndFrame gives each client a per-frame byte budget
@@ -2255,6 +2287,7 @@ static void world_sync_tick(void)
         if (g_sync_on) sync_open(host);
         install_014(g, host);
         install_015(g, host);
+        if (host) hook_game_msgout(g);
     }
     ready = host || *((BYTE *)GetModuleHandleA(NULL) + 0xDE3928);
     if (ready && !ready_at) ready_at = GetTickCount();
@@ -2680,7 +2713,7 @@ BOOL WINAPI DllMain(HINSTANCE h, DWORD why, LPVOID r)
         sprintf(lp, "%sCoopTest", g_dir); CreateDirectoryA(lp, NULL);
         sprintf(lp, "%sCoopTest\\bp_coop_%lu.log", g_dir, GetCurrentProcessId());
         g_log = fopen(lp, "w");
-        logf("bp_coop 0.15.2 loaded, pid %lu. mode=%s host_ip=%s name=%s max_players=%d two_instances=%d",
+        logf("bp_coop 0.15.3 loaded, pid %lu. mode=%s host_ip=%s name=%s max_players=%d two_instances=%d",
              GetCurrentProcessId(), g_mode, g_ip, g_name, g_maxplayers, g_two);
         install_hooks();
         g_main_tid = GetCurrentThreadId();
