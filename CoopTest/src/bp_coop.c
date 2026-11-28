@@ -608,6 +608,20 @@ static void client_world_ready(void)
     logf("client world ready: sent 0x80FC (player pid %d), loading flag now %d, try %d", f, *flag, tries);
 }
 
+/* 0.15.2 host: after a host New Game the game kept drawing the loading screen over the running world
+ * (the flag stayed 0: the New Game intro script only sends 0x80FC in its single-player branch). If the
+ * host's player has existed for 20 s and the flag is still 0, send it like the client does. */
+static void host_world_ready(void)
+{
+    static DWORD seen; BYTE *flag = (BYTE *)GetModuleHandleA(NULL) + 0xDE3928; int f = V.clfocus(10);
+    if (!g_world_ready_on || *flag || f <= 0 || f >= 4096 || !V.sv_ent[f]) { if (*flag) seen = 0; return; }
+    if (!seen) { seen = GetTickCount(); return; }
+    if (GetTickCount() - seen < 20000) return;
+    logf("host world ready: loading screen still up 20 s after our player %d appeared, sending 0x80FC", f);
+    seen = GetTickCount() - 18000;   /* retry every 2 s */
+    client_world_ready();
+}
+
 static void hook_streaming(HMODULE game);
 
 /* ---- host bandwidth: svNetworkSndFrame gives each client a per-frame byte budget
@@ -634,7 +648,7 @@ static void world_sync_tick(void);
 static void __cdecl client_send_frame(void)
 {
     if (vital_load() && (*V.mode == 3 || *V.mode == 4)) world_sync_tick();
-    if (vital_load() && *V.mode == 3) { host_rate_boost(); o_sndframe(); return; }
+    if (vital_load() && *V.mode == 3) { host_world_ready(); host_rate_boost(); o_sndframe(); return; }
     if (vital_load() && *V.mode == 4) client_world_ready();
     if (g_send_filter_on && vital_load() && *V.mode == 4) {
         int keep[4], k, p, n = 0;
@@ -2666,7 +2680,7 @@ BOOL WINAPI DllMain(HINSTANCE h, DWORD why, LPVOID r)
         sprintf(lp, "%sCoopTest", g_dir); CreateDirectoryA(lp, NULL);
         sprintf(lp, "%sCoopTest\\bp_coop_%lu.log", g_dir, GetCurrentProcessId());
         g_log = fopen(lp, "w");
-        logf("bp_coop 0.15.1 loaded, pid %lu. mode=%s host_ip=%s name=%s max_players=%d two_instances=%d",
+        logf("bp_coop 0.15.2 loaded, pid %lu. mode=%s host_ip=%s name=%s max_players=%d two_instances=%d",
              GetCurrentProcessId(), g_mode, g_ip, g_name, g_maxplayers, g_two);
         install_hooks();
         g_main_tid = GetCurrentThreadId();

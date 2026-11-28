@@ -5,3 +5,4 @@ CoopTest/*.log
 coop_profile.ini
 coop_autoexec.txt
 *.zip
+CoopTest/sync_targets.txt

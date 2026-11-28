@@ -16,3 +16,4 @@ New-Item -ItemType Directory -Force "$here\bin", "$here\obj" | Out-Null
 & cl.exe /nologo /W3 /O2 /MT /D_CRT_SECURE_NO_WARNINGS /LD "$here\src\bp_coop.c" "/Fo$here\obj\\" "/Fe$here\bin\dinput.dll" /link kernel32.lib user32.lib "/DEF:$here\src\dinput.def" "/IMPLIB:$here\obj\dinput.lib"
 if ($LASTEXITCODE) { throw "build failed" }
 Write-Host "built $here\bin\dinput.dll"
+if (Test-Path "$here\deploy.ps1") { & "$here\deploy.ps1" }
