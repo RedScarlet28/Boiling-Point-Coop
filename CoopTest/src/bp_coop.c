@@ -632,6 +632,23 @@ typedef void (__cdecl *fn_pause)(BYTE, int);
 static fn_msgout o_gmsgout; static fn_pause g_stpause;
 static int __cdecl my_game_msgout(int a, int msg, void *p1, void *p2)
 {
+    static WORD seen[256]; static int nseen;
+    if (*V.mode == 3 && a == 3 && msg >= 0x8000 && msg < 0x8100) {
+        int k; for (k = 0; k < nseen; k++) if (seen[k] == msg) break;
+        if (k == nseen && nseen < 256) {
+            BYTE *g = (BYTE *)GetModuleHandleA("game.dll");
+            seen[nseen++] = (WORD)msg;
+            logf("host: game -> Xenus message 0x%X (%p, %p) first seen, scenario step %d", msg, p1, p2, *(int *)(g + 0x7F585C));
+        }
+    }
+    /* 0.15.4: 0x807C = in-game menu (gameNewFrame, when game key 0x71 reads as pressed). On the host it
+     * fired by itself right after the New Game intro. Only let it through when Esc/F10 is really down. */
+    if (msg == 0x807C && *V.mode == 3 && !(GetAsyncKeyState(VK_ESCAPE) & 0x8000) && !(GetAsyncKeyState(VK_F10) & 0x8000)) {
+        static int logs;
+        if (logs++ < 10) logf("host: dropped menu message 0x807C (no menu key held), game unpaused");
+        if (g_stpause) g_stpause(0, 0);
+        return 0;
+    }
     if (msg == 0x808F && *V.mode == 3) {
         BYTE *g = (BYTE *)GetModuleHandleA("game.dll");
         logf("host: dropped 'back to main menu' (0x808F) from the intro script, scenario step %d/%d",
@@ -665,7 +682,10 @@ static int g_host_rate = 400000;
 static void host_rate_boost(void)
 {
     int c; static int logged;
-    for (c = 1; c < 31; c++) {
+    /* 0.15.5: c = 0 too = machine 1, the host's OWN client. After a host New Game its rate was 0 as well,
+     * so the host's server never sent the world to the host's client (cl_ent nearly empty, no player to
+     * view) and Xenus drew the main menu instead of the world. Loading a save set the rate, so it worked. */
+    for (c = 0; c < 31; c++) {
         BYTE *m = V.machine + (c + 1) * 0xd8c;
         if (*(int *)(m + 4) != 2) continue;
         if (*(int *)(m + 0x54) < g_host_rate) {
@@ -2713,7 +2733,7 @@ BOOL WINAPI DllMain(HINSTANCE h, DWORD why, LPVOID r)
         sprintf(lp, "%sCoopTest", g_dir); CreateDirectoryA(lp, NULL);
         sprintf(lp, "%sCoopTest\\bp_coop_%lu.log", g_dir, GetCurrentProcessId());
         g_log = fopen(lp, "w");
-        logf("bp_coop 0.15.3 loaded, pid %lu. mode=%s host_ip=%s name=%s max_players=%d two_instances=%d",
+        logf("bp_coop 0.15.5 loaded, pid %lu. mode=%s host_ip=%s name=%s max_players=%d two_instances=%d",
              GetCurrentProcessId(), g_mode, g_ip, g_name, g_maxplayers, g_two);
         install_hooks();
         g_main_tid = GetCurrentThreadId();
